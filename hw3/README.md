@@ -1,0 +1,1 @@
+Homework 3: Implement DPLL and solve one of the problems in 14.1-14.16.
