@@ -33,12 +33,29 @@ function SATformula(clauses::Vector{T})::SATformula where T
     return SATformula(clauses, num_vars, num_clauses)
 end
 
-function SATsolution(solutions::Vector{Bool},clauses::Vector{Vector{Int64}})::SATsolution
-    num_vars = maximum(abs.(reduce(vcat, clauses)))
-    return SATsolution(solutions, clauses, num_vars)
+function SATsolution(solutions::Vector{Bool},formula::SATformula)::SATsolution
+    if length(solutions) != formula.num_vars
+        throw(ArgumentError("Solutions length must match number of variables."))
+    end
+    clauses = formula.clauses
+    num_vars = formula.num_vars
+    return SATsolution(solutions, num_vars, clauses)
 end
 
-function is_unit_clause(clause::Vector{Int})
+function is_unit_clause(clause::Vector{Int}, assignment::Vector{Union{Nothing, Bool}})
+    # a unit clause has exactly one literal unassigned, will others not satisfied.
+    index = abs.(clause)
+    try solution=assignment[index]
+        for literal in clause
+            if literal > 0 && solution[literal] == true
+                return true
+            elseif literal < 0 && assignment[-literal] == false
+                return true
+            end
+        end
+    catch e
+        throw(ArgumentError("Clause has additional literal beyond assignment."))
+    end
     return length(clause) == 1
 end
 
@@ -139,36 +156,36 @@ function dpll(clauses::SATformula, assignment::SATsolution)
     return dpll(clauses, assignment)
 end
 
-function solve_sat(formula::SATformula)
-    assignment = fill(nothing, formula.num_vars)
-    result = dpll(formula.clauses, assignment)
-    if result == true
-        return SATsolution(formula.clauses, formula.num_vars)
-    else
-        return nothing
-    end
-end
+# function solve_sat(formula::SATformula)
+#     assignment = fill(nothing, formula.num_vars)
+#     result = dpll(formula.clauses, assignment)
+#     if result == true
+#         return SATsolution(formula.clauses, formula.num_vars)
+#     else
+#         return nothing
+#     end
+# end
 
-function print_solution(solution::SATsolution)
-    if solution == nothing
-        println("No solution found.")
-    else
-        println("Solution found:")
-        for i in 1:solution.num_vars
-            if solution.clauses[i] == true
-                println("Variable $i: true")
-            elseif solution.clauses[i] == false
-                println("Variable $i: false")
-            else
-                println("Variable $i: undefined")
-            end
-        end
-    end
-end
-function main()
-    clauses = [[1, -2], [-1, 2], [2, 3], [-3]]
-    formula = SATformula(clauses)
-    solution = solve_sat(formula)
-    print_solution(solution)
-end
-main()
+# function print_solution(solution::SATsolution)
+#     if solution == nothing
+#         println("No solution found.")
+#     else
+#         println("Solution found:")
+#         for i in 1:solution.num_vars
+#             if solution.clauses[i] == true
+#                 println("Variable $i: true")
+#             elseif solution.clauses[i] == false
+#                 println("Variable $i: false")
+#             else
+#                 println("Variable $i: undefined")
+#             end
+#         end
+#     end
+# end
+# function main()
+#     clauses = [[1, -2], [-1, 2], [2, 3], [-3]]
+#     formula = SATformula(clauses)
+#     solution = solve_sat(formula)
+#     print_solution(solution)
+# end
+# main()
