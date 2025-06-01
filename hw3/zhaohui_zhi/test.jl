@@ -3,73 +3,96 @@ include("DPLL.jl")
 
 @testset "is_satisfied" begin
     # Test case 1: Clause satisfied by positive literal
+    # :t is true, :f is false, :u is undetermined
     clause1 = [1, -2]
-    assignment1 = [true, false]
+    assignment1 = [:t, :f]
     @test is_satisfied(clause1, assignment1) == true
 
     # Test case 2: Clause satisfied by negative literal
     clause2 = [1, -2]
-    assignment2 = [true, true]
+    assignment2 = [:t, :t]
     @test is_satisfied(clause2, assignment2) == true
 
     # Test case 3: Clause not satisfied
     clause3 = [1, -2]
-    assignment3 = [false, true]
+    assignment3 = [:f, :t]
     @test is_satisfied(clause3, assignment3) == false
 
     # Test case 4: Empty clause (should be satisfied)
     clause4 = []
-    assignment4 = [true, false]
+    assignment4 = [:t, :f]
     @test_broken is_satisfied(clause4, assignment4) == true
 
     # Test case 5: Clause with clause has no common length with assignment
     clause5 = [-1, -2]
-    assignment5 = [false, false, false]
+    assignment5 = [:f, :f, :f]
     @test is_satisfied(clause5, assignment5) == true
 
     # # Test case 6: Clause with clause has additional literal beyond assignment
     # clause6 = [1, -2, 3]
-    # assignment6 = [true, false]
+    # assignment6 = [:t, :f]
     # @test_throws ArgumentError is_satisfied(clause6, assignment6)
+
+    # Test case 7: Clause with clause has additional literal beyond assignment
+    clause7 = [1, -2, 3]
+    assignment7 = [:t, :f, :u]
+    @test is_satisfied(clause7, assignment7) == true
+
+    # Test case 8: Clause with clause has additional literal beyond assignment
+    clause8 = [1, -2, 3]
+    assignment8 = [:f, :t, :u]
+    @test is_satisfied(clause8, assignment8) == false
 end
 
 @testset "is_satisfied_all" begin
     # Test case 1: All clauses satisfied
     clauses1 = SATformula([[1, -2], [-1, 2]])
-    assignment1 = SATsolution([true, false], clauses1)
+    assignment1 = SATsolution([:t, :f], clauses1)
     @test is_satisfied_all(clauses1, assignment1) == false
 
     # Test case 2: Not all clauses satisfied
     clauses2 = SATformula([[-1, -2, 3], [-3, 4]])
-    assignment2 = SATsolution([true, true, true, true], clauses2)
+    assignment2 = SATsolution([:t, :t, :t, :t], clauses2)
     @test is_satisfied_all(clauses2, assignment2) == true
 
     # Test case 3: Empty clauses (should be satisfied)
     # clauses3 = SATformula([])
-    # assignment3 = [true, false]
+    # assignment3 = [:t, :f]
     # @test is_satisfied_all(clauses3, assignment3) == true
+end
+
+@testset "is_unit_clause" begin
+    clause = [1, -2, 3]
+    assignment = [:f, :u, :f]
+    # Test case 1: Unit clause
+    @test is_unit_clause(clause, assignment) == true
+    # Test case 2: Not a unit clause
+    @test is_unit_clause(clause, [:f, :t, :f]) == false
+    # Test case 3: Empty clause (should not be considered a unit clause)   
+    @test is_unit_clause([2], assignment) == true 
 end
 
 @testset "unit_propagate" begin
     # Test case 1: Simple unit propagation
-    clauses1 = SATformula([[1, -2], [-1, 2], [2]])
-    assignment1 = SATsolution([nothing, nothing, nothing], clauses1)
+    T = Union{:u, Bool}
+    clauses1 = SATformula([[1, -2, 3], [-1, 2], [2]])
+    assignment1 = SATsolution(T[:u, :u, :u], clauses1)
     new_clauses1, new_assignment1 = unit_propagate(clauses1, assignment1)
-    @test new_assignment1 == [true, false, true]
+    @test new_assignment1 == [:t, :f, :t]
     @test new_clauses1 == []
 
     # Test case 2: No unit clauses
     clauses2 = [[1, -2], [-3]]
-    assignment2 = [nothing, nothing, nothing]
+    assignment2 = [:u, :u, :u]
     new_clauses2, new_assignment2 = unit_propagate(clauses2, assignment2)
-    @test new_assignment2 == [nothing, nothing, nothing]
+    @test new_assignment2 == [:u, :u, :u]
     @test new_clauses2 == [[1, -2], [-3]]
 
     # Test case 3: Empty clauses
     clauses3 = []
-    assignment3 = [nothing]
+    assignment3 = [:u]
     new_clauses3, new_assignment3 = unit_propagate(clauses3, assignment3)
-    @test new_assignment3 == [nothing]
+    @test new_assignment3 == [:u]
     @test new_clauses3 == []
 end
 

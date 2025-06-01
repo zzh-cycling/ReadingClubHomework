@@ -7,7 +7,7 @@ struct SATformula
 end
 
 struct SATsolution
-    solutions::Vector{Bool}
+    solutions::Vector{Symbol}
     num_vars::Int
     clauses::Vector{Vector{Int}}  # Store the clauses for reference
 end
@@ -33,7 +33,7 @@ function SATformula(clauses::Vector{T})::SATformula where T
     return SATformula(clauses, num_vars, num_clauses)
 end
 
-function SATsolution(solutions::Vector{Bool},formula::SATformula)::SATsolution
+function SATsolution(solutions::Vector{Symbol},formula::SATformula)::SATsolution
     if length(solutions) != formula.num_vars
         throw(ArgumentError("Solutions length must match number of variables."))
     end
@@ -42,29 +42,30 @@ function SATsolution(solutions::Vector{Bool},formula::SATformula)::SATsolution
     return SATsolution(solutions, num_vars, clauses)
 end
 
-function is_unit_clause(clause::Vector{Int}, assignment::Vector{Union{Nothing, Bool}})
-    # a unit clause has exactly one literal unassigned, will others not satisfied.
-    index = abs.(clause)
-    try solution=assignment[index]
-        for literal in clause
-            if literal > 0 && solution[literal] == true
-                return true
-            elseif literal < 0 && assignment[-literal] == false
-                return true
-            end
+function is_unit_clause(clause::Vector{Int}, assignment::Vector{Symbol})
+    unassigned_count = 0
+    for literal in clause
+        var = abs(literal)
+        var > length(assignment) && throw(ArgumentError("Clause contains literal $var beyond assignment length $(length(assignment))"))
+        value = assignment[var]
+        
+        if (literal > 0 && value === true) || (literal < 0 && value === false)
+            return false
+        elseif value === nothing
+            unassigned_count += 1
         end
-    catch e
-        throw(ArgumentError("Clause has additional literal beyond assignment."))
     end
-    return length(clause) == 1
+
+    return unassigned_count == 1
 end
 
 function is_empty_clause(clause::Vector{Int})
     return length(clause) == 0
 end
 
-function is_satisfied(clause::Vector{Int}, assignment::Vector{Bool})
+function is_satisfied(clause::Vector{Symbol}, assignment::Vector{T})
     # once one literal is true, thus clause is satisfied
+    @assert length(clause) <= length(assignment) "Clause length exceeds assignment length, thus undefinite."
     if isempty(clause)
         return true
     end
@@ -89,21 +90,11 @@ function is_satisfied_all(clauses::SATformula, assignment::SATsolution)
     return true
 end
 
-function is_unsatisfied(clauses::SATformula)
-    clauses_set = clauses.clauses
-    for clause in clauses_set
-        if is_empty_clause(clause)
-            return true
-        end
-    end
-    return false
-end
-
 function unit_propagate(clauses::SATformula, assignment::SATsolution)
     clauses_set = clauses.clauses
     solution = assignment.solutions
     while true
-        unit_clauses = filter(is_unit_clause, clauses_set)
+        unit_clauses = filter(x -> is_unit_clause(x, solution), clauses_set)
         if isempty(unit_clauses)
             break
         end
