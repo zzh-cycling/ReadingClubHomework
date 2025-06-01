@@ -18,6 +18,9 @@ function SATformula(clauses::Vector{Vector{Int}})::SATformula
     return SATformula(clauses, num_vars, num_clauses)
 end
 
+Base.:(==)(s1::SATformula, s2::SATformula) = s1.clauses == s2.clauses && s1.num_vars == s2.num_vars && s1.num_clauses== s2.num_clauses
+Base.:(==)(s1::SATsolution, s2::SATsolution) = s1.solutions == s2.solutions && s1.num_vars == s2.num_vars && s1.clauses == s2.clauses
+
 function SATformula(clauses::Vector{T})::SATformula where T   
     if isempty(clauses)
         throw(ArgumentError("Clauses cannot be empty."))
@@ -49,9 +52,9 @@ function is_unit_clause(clause::Vector{Int}, assignment::Vector{Symbol})
         var > length(assignment) && throw(ArgumentError("Clause contains literal $var beyond assignment length $(length(assignment))"))
         value = assignment[var]
         
-        if (literal > 0 && value === true) || (literal < 0 && value === false)
+        if (literal > 0 && value === :t) || (literal < 0 && value === :f)
             return false
-        elseif value === nothing
+        elseif value == :u
             unassigned_count += 1
         end
     end
@@ -63,16 +66,16 @@ function is_empty_clause(clause::Vector{Int})
     return length(clause) == 0
 end
 
-function is_satisfied(clause::Vector{Symbol}, assignment::Vector{T})
+function is_satisfied(clause::Vector{Int64}, assignment::Vector{Symbol})
     # once one literal is true, thus clause is satisfied
     @assert length(clause) <= length(assignment) "Clause length exceeds assignment length, thus undefinite."
     if isempty(clause)
         return true
     end
     for literal in clause
-        if literal > 0 && assignment[literal] == true
+        if literal > 0 && assignment[literal] == :t
             return true
-        elseif literal < 0 && assignment[-literal] == false
+        elseif literal < 0 && assignment[-literal] == :f
             return true
         end
     end
@@ -101,14 +104,14 @@ function unit_propagate(clauses::SATformula, assignment::SATsolution)
         for unit_clause in unit_clauses
             literal = unit_clause[1]
             if literal > 0
-                solution[literal] = true
+                solution[literal] = :t
             else
-                solution[-literal] = false
+                solution[-literal] = :f
             end
-            clauses = filter(c -> !is_satisfied(c, solution), clauses_set)
+            clauses_set = filter(c -> !is_satisfied(c, solution), clauses_set)
         end
     end
-    return SATformula(clauses_set), SATsolution(solution, clauses_set)
+    return SATformula(clauses_set), SATsolution(solution, clauses)
 end
 
 function choose_literal(clauses::SATformula, assignment::SATsolution)
@@ -116,14 +119,14 @@ function choose_literal(clauses::SATformula, assignment::SATsolution)
     solution = assignment.solutions
     for clause in clauses
         for literal in clause
-            if literal > 0 && assignment[literal] === nothing
+            if literal > 0 && assignment[literal] == :u
                 return literal
-            elseif literal < 0 && assignment[-literal] === nothing
+            elseif literal < 0 && assignment[-literal] == :u
                 return -literal
             end
         end
     end
-    return nothing
+    return :u
 end
 
 function dpll(clauses::SATformula, assignment::SATsolution)

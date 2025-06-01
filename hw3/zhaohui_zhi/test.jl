@@ -74,12 +74,11 @@ end
 
 @testset "unit_propagate" begin
     # Test case 1: Simple unit propagation
-    T = Union{:u, Bool}
     clauses1 = SATformula([[1, -2, 3], [-1, 2], [2]])
-    assignment1 = SATsolution(T[:u, :u, :u], clauses1)
+    assignment1 = SATsolution([:u, :u, :u], clauses1)
     new_clauses1, new_assignment1 = unit_propagate(clauses1, assignment1)
-    @test new_assignment1 == [:t, :f, :t]
-    @test new_clauses1 == []
+    @test new_assignment1 == SATsolution([:u, :t, :u], clauses1)
+    @test new_clauses1 == SATformula([[1, -2, 3]])
 
     # Test case 2: No unit clauses
     clauses2 = [[1, -2], [-3]]
@@ -88,7 +87,7 @@ end
     @test new_assignment2 == [:u, :u, :u]
     @test new_clauses2 == [[1, -2], [-3]]
 
-    # Test case 3: Empty clauses
+    # # Test case 3: Empty clauses
     clauses3 = []
     assignment3 = [:u]
     new_clauses3, new_assignment3 = unit_propagate(clauses3, assignment3)
