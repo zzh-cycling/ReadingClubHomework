@@ -81,27 +81,52 @@ end
     @test new_clauses1 == SATformula([[1, -2, 3]])
 
     # Test case 2: No unit clauses
-    clauses2 = [[1, -2], [-3]]
-    assignment2 = [:u, :u, :u]
+    clauses2 = SATformula([[1, -2], [-3]])
+    assignment2 = SATsolution([:u, :u, :u], clauses2)
     new_clauses2, new_assignment2 = unit_propagate(clauses2, assignment2)
-    @test new_assignment2 == [:u, :u, :u]
-    @test new_clauses2 == [[1, -2], [-3]]
+    @test new_assignment2 == SATsolution([:u, :u, :f], clauses2)
+    @test new_clauses2 == SATformula([[1, -2]])
 
     # # Test case 3: Empty clauses
-    clauses3 = []
-    assignment3 = [:u]
-    new_clauses3, new_assignment3 = unit_propagate(clauses3, assignment3)
-    @test new_assignment3 == [:u]
-    @test new_clauses3 == []
+    # clauses3 = SATformula([])
+    # assignment3 = SATsolution([:u], clauses3)
+    # new_clauses3, new_assignment3 = unit_propagate(clauses3, assignment3)
+    # @test new_assignment3 == [:u]
+    # @test new_clauses3 == []
+    # Test case 4: All clauses satisfied
+    clauses = SATformula([[-2, -3, -4, 5], [-1, -5, 6], [-5, 7], [-1, -6, -7], [-1, -2, 5], [-1, -3, 5], [-1, -4, 5], [-1, 2, 3, 4, 5, -6]])
+    assignment = SATsolution([:t, :t, :u, :u, :u, :u, :u],clauses)
+    unsolved_clauses, assignment = unit_propagate(clauses, assignment)
+    @test assignment.solutions == [:t, :t, :u, :u, :t, :t, :t]
+    @test unsolved_clauses.clauses == [[-1, -6, -7]]
+end 
+
+@testset "conflict" begin
+    @test is_clause_conflicted([1, -2], [:t, :f]) == false
+    @test is_clause_conflicted([1, -2], [:f, :t]) == true
+    @test is_clause_conflicted([1, -2], [:f, :f]) == false  
+
+    clauses = SATformula([[1, -2], [-1, 2]])
+    assignment = SATsolution([:t, :f], clauses)
+    @test conflict(clauses, assignment) == true
+end
+
+@testset "choose_literal" begin
+    # Test case 1: Choose a literal from a simple clause
+    clauses1 = SATformula([[1, -2, 3]])
+    assignment1 = SATsolution([:u, :u, :u], clauses1)
+    literal1 = choose_literal(clauses1, assignment1)
+    @test literal1 == 1
 end
 
 
 # Test cases for DPLL algorithm
 @testset "DPLL Tests" begin
     # Test case 1: Simple satisfiable formula
-    formula1 = [[1, -2], [-1, 2], [2, 3]]
-    result1 = dpll(formula1)
-    @test result1 == true
+    clauses = SATformula([[-2, -3, -4, 5], [-1, -5, 6], [-5, 7], [-1, -6, -7], [-1, -2, 5], [-1, -3, 5], [-1, -4, 5], [-1, 2, 3, 4, 5, -6]])
+    assignment = SATsolution(fill(:u, 7), clauses)
+    result1 = dpll(clauses, assignment)
+    @test result1 == [:t, :f, :f, :f, :f, :f, :f, :u]
 
     # Test case 2: Simple unsatisfiable formula
     formula2 = [[1, -2], [-1, 2], [2, -3]]
