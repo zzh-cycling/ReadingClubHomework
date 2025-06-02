@@ -123,29 +123,33 @@ end
 # Test cases for DPLL algorithm
 @testset "DPLL Tests" begin
     # Test case 1: Simple satisfiable formula
-    clauses = SATformula([[-2, -3, -4, 5], [-1, -5, 6], [-5, 7], [-1, -6, -7], [-1, -2, 5], [-1, -3, 5], [-1, -4, 5], [-1, 2, 3, 4, 5, -6]])
-    assignment = SATsolution(fill(:u, 7), clauses)
-    result1 = dpll(clauses, assignment)
-    @test result1 == [:t, :f, :f, :f, :f, :f, :f, :u]
+    clauses1 = SATformula([[-2, -3, -4, 5], [-1, -5, 6], [-5, 7], [-1, -6, -7], [-1, -2, 5], [-1, -3, 5], [-1, -4, 5], [-1, 2, 3, 4, 5, -6]])
+    assignment1 = SATsolution(fill(:u, 7), clauses1)
+    result1 = dpll(clauses1, assignment1)
+    @test result1[2].solutions == [:t, :f, :f, :f, :f, :f, :u]
 
     # Test case 2: Simple unsatisfiable formula
-    formula2 = [[1, -2], [-1, 2], [2, -3]]
-    result2 = dpll(formula2)
-    @test result2 == false
+    clauses2 = SATformula([[1, -2], [-1, 2], [2, -3]])
+    assignment2 = SATsolution(fill(:u, 3), clauses2)
+    result2 = dpll(clauses2, assignment2)
+    @test result2[2].solutions == [:t,:t,:u]
 
     # Test case 3: More complex satisfiable formula
-    formula3 = [[1, 2], [-1, -3], [3]]
-    result3 = dpll(formula3)
-    @test result3 == true
+    clauses3 = SATformula([[1, 2], [-1, -3], [3]])
+    assignment3 = SATsolution(fill(:u, 3), clauses3)
+    result3 = dpll(clauses3, assignment3)
+    @test result3[2].solutions == [:f,:t,:t]
 
     # Test case 4: Empty clause (unsatisfiable)
-    formula4 = [[1, -2], [-1, 2], []]
-    result4 = dpll(formula4)
-    @test result4 == false
+    formula4 = SATformula([[1, -2], [-1, 2], []])
+    assignment4 = SATsolution(fill(:u, 2), formula4)
+    result4 = dpll(formula4, assignment4)
+    @test result4[1] == false
 
     # Test case 5: All variables are true
-    formula5 = [[1], [2], [3]]
-    result5 = dpll(formula5)
-    @test result5 == true
+    formula5 = SATformula([[1], [2], [3]])
+    assignment5 = SATsolution(fill(:u, 3), formula5)
+    result5 = dpll(formula5, assignment5)
+    @test result5[2].solutions == [:t,:t,:t]
 
 end

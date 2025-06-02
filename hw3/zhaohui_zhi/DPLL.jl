@@ -12,11 +12,11 @@ struct SATsolution
     clauses::Vector{Vector{Int}}  # Store the clauses for reference
 end
 
-function SATformula(clauses::Vector{Vector{Int}})::SATformula
-    num_vars = maximum(abs.(reduce(vcat, clauses)))
-    num_clauses = length(clauses)
-    return SATformula(clauses, num_vars, num_clauses)
-end
+# function SATformula(clauses::Vector{Vector{Int}})::SATformula
+#     num_vars = maximum(abs.(reduce(vcat, clauses)))
+#     num_clauses = length(clauses)
+#     return SATformula(clauses, num_vars, num_clauses)
+# end
 
 Base.:(==)(s1::SATformula, s2::SATformula) = s1.clauses == s2.clauses && s1.num_vars == s2.num_vars && s1.num_clauses== s2.num_clauses
 Base.:(==)(s1::SATsolution, s2::SATsolution) = s1.solutions == s2.solutions && s1.num_vars == s2.num_vars && s1.clauses == s2.clauses
@@ -154,6 +154,7 @@ function unit_propagate(clauses::SATformula, assignment::SATsolution)
                 end
             end
             clauses_set = filter(c -> !is_satisfied(c, solution), clauses_set)
+            
         end
     end
     return SATformula(clauses_set), SATsolution(solution, clauses)
@@ -171,7 +172,7 @@ function dpll(clauses::SATformula, assignment::SATsolution) # initial default as
     # solution = fill(:u, clauses.num_vars)
     # assignment = SATsolution(solution, clauses)
     unsolved_clauses, assignment = unit_propagate(clauses, assignment)
-    @show unsolved_clauses, assignment.solutions
+
     if any(isempty, clauses.clauses) && !isempty(clauses.clauses)
         return false, assignment
     end
@@ -182,10 +183,9 @@ function dpll(clauses::SATformula, assignment::SATsolution) # initial default as
         return false, assignment
     else
         literal = choose_literal(clauses, assignment)
-        @show literal
+
         assignment_true = deepcopy(assignment)
         assignment_true.solutions[literal] = :t
-        @show assignment_true.solutions
         result, solution = dpll(clauses, assignment_true)
         if result
             return true, solution
@@ -193,7 +193,7 @@ function dpll(clauses::SATformula, assignment::SATsolution) # initial default as
 
         assignment_false = deepcopy(assignment)
         assignment_false.solutions[literal] = :f
-        @show assignment_false.solutions
+    
         return dpll(clauses, assignment_false)
     end
 end
