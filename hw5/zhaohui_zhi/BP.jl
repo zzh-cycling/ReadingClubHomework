@@ -1,7 +1,8 @@
 using Random
 using Statistics
-using Graphs
+using Graphs, SimpleWeightedGraphs
 using LinearAlgebra
+using SparseArrays
 
 struct SATformula
     clauses::Vector{Vector{Int}}
@@ -49,9 +50,9 @@ end
 
 # factor graph, the first num_vars are the variables (the indices), the rest are the factors (the tensors)
 struct FactorGraph{T}
-    g::SimpleGraph{T}
+    g::SimpleWeightedGraph{T}
     num_vars::Int
-    function FactorGraph(g::SimpleGraph{T}, num_vars::Int) where T
+    function FactorGraph(g::SimpleWeightedGraph{T}, num_vars::Int) where T
         for e in edges(g)
             s, d = src(e), dst(e)
             # neighbor of a variable is a factor, and vice versa
@@ -83,15 +84,14 @@ is_variable(fg::FactorGraph, v) = v ≤ fg.num_vars
 function FactorGraph(code::SATformula)::FactorGraph
     num_vars = code.num_vars
     num_clauses = code.num_clauses
-    g = SimpleGraph(num_vars + num_clauses)
+    g = SimpleWeightedGraph(num_vars + num_clauses)
     
     # Add edges between variables and clauses
     for (i, clause) in enumerate(code.clauses)
         clause_idx = num_vars + i  # Clause index in the graph
         for var in clause
-            @show var, clause_idx
             # Add edge from variable to clause
-            add_edge!(g, abs(var), clause_idx)
+            add_edge!(g, abs(var), clause_idx, sign(var))
         end
     end
     
@@ -104,6 +104,18 @@ function is_variable(v::Int, num_vars::Int)::Bool
 
     """
     return v<= num_vars
+end
+
+function Set_messages(FG::FactorGraph)
+    # Set messages in the factor graph
+    messages = Dict{Tuple{Int, Int}, Vector{Float64}}()
+    g = FG.g
+    for e in edges(g)
+        messages[(src(e), dst(e))] = [0.5, 0.5]  # Initialize messages to uniform distribution
+        messages[(dst(e), src(e))] = [0.5, 0.5]  # Initialize messages in the opposite direction
+    end
+    
+    return messages
 end
 
 function seperate_messages(messages::Dict{Tuple{Int, Int}, TA}, num_vars::Int64) where TA
@@ -124,9 +136,9 @@ function seperate_messages(messages::Dict{Tuple{Int, Int}, TA}, num_vars::Int64)
     return messages_v2f, messages_f2v
 end
 
-function BP_update!(messages::Dict{Tuple{Int, Int}, TA},  edge_types::Dict{Tuple{Int, Int}, Int}, damping_factor::Float64=0.5, tolerance::Float64=1e-6 ,randomvalue::Bool=true) where TA
-    # Input: Set of all messages arriving onto each variable node j ∈ V(a)\i
-    messages_v2f, messages_f2v = seperate_messages(messages, maximum(keys(messages))[1])
+function BP_update!(update_messages::Dict{Tuple{Int, Int}, TA}, num_vars::Int64, edge_types::Dict{Tuple{Int, Int}, Int}, damping_factor::Float64=0.5, tolerance::Float64=1e-6 ,randomvalue::Bool=true) where TA
+    # Input: Set of all update_messages arriving onto each variable node j ∈ V(a)\i
+    messages_v2f, messages_f2v = seperate_messages(messages, num_vars)
     bond = collect(keys(messages))
     fuse(x,y)=[x...,y...]
     vertices = Set(foldl(fuse, bond))
@@ -141,15 +153,25 @@ function BP_update!(messages::Dict{Tuple{Int, Int}, TA},  edge_types::Dict{Tuple
     V_plus = Dict{Int, Vector{Tuple{Int, Int}}}()  # 变量j的原变量边 (a,j) where J=-1
     V_minus = Dict{Int, Vector{Tuple{Int, Int}}}() # 变量j的否定边 (a,j) where J=1
     
-    for (a_j, j) in keys(edge_types)
-        J = edge_types[(a_j, j)]
-        if J == -1
-            push!(get!(V_plus, j, []), (a_j, j))
-        elseif J == 1
-            push!(get!(V_minus, j, []), (a_j, j))
+    I, J, V = findnz(edge_types)  # I=行索引, J=列索引, V=元素值
+
+    for idx in eachindex(V)
+        i = I[idx]
+        j = J[idx]
+        val = V[idx]
+
+        # 注意：Julia 稀疏矩阵默认列优先存储
+        if val == -1.0
+            # 添加到 V_plus (j对应键, (i,j)是坐标)
+            arr = get!(() -> Tuple{Int, Int}[], V_plus, j)
+            push!(arr, (i, j))
+        elseif val == 1.0
+            # 添加到 V_minus
+            arr = get!(() -> Tuple{Int, Int}[], V_minus, j)
+            push!(arr, (i, j))
         end
     end
-
+    
     # 遍历每条消息边 (a -> i)
     for (a, i) in keys(messages)
         # 获取 V(a)\i：所有与a相连的变量节点，排除i
@@ -220,7 +242,7 @@ function BP_update!(messages::Dict{Tuple{Int, Int}, TA},  edge_types::Dict{Tuple
     return messages
 end
 
-function BP(FG::FactorGraph, max_iter::Int=1000, tol::Float64=1e-6)
+function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::Float64=1e-6)
     """
     Belief Propagation algorithm for solving SAT problems represented as a FactorGraph.
     Parameters:
@@ -231,15 +253,33 @@ function BP(FG::FactorGraph, max_iter::Int=1000, tol::Float64=1e-6)
         "UN-CONVERGED" or all messages.
     """
     # Initialize messages
-    messages = Dict{Tuple{Int, Int}, Float64}()
+    messages = Set_messages(FG)
     g = FG.g
     # Initialize variable assignments
-    assignment = fill(:u, g.num_vars)
+    
+    edge_types = g.weights  # Edge types: -1 for original variable edges, 1 for negated variable edges
+    
+    
+    
+    messages_v2f, messages_f2v = seperate_messages(messages, FG.num_vars)
+    t = collect(keys(messages_f2v))
     order = randomvalue ? t[sortperm(rand(length(t)))] : t
+
+    
     
 
     for iter in 1:max_iter
         # Update messages from variables to clauses
+        for (a, i) in order
+            # 获取 V(a)\i：所有与a相连的变量节点，排除i
+            neighbors = [j for (a_prime, j) in keys(messages) if a_prime == a && j != i]
+            isempty(neighbors) && continue  # 跳过无邻居的情况
+            input_message = Dict((a, k) => messages[(a, k)] for k in neighbors if haskey(messages, (a, k)))
+            output_message = BP_update!(input_message, FG.num_vars, edge_types, 0.5, tol, randomvalue)
+
+        end     
+
+
         for v in 1:g.num_vars
             neighbors = g.neighbors[v]
             for c in neighbors
