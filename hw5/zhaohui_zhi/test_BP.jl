@@ -103,27 +103,5 @@ end
     # 1 -> 5 var index, 6->9 clause idx, or a, b, c, d
     g = FG.g
     edge_types = FG.edge_types
-    @test result != nothing
-end
-
-# 1. 定义因子图
-nvars = 5
-t2v = [[1, -2], [-1, 2, -3], [3, 4, -5], [1]] # 因子1连接变量1和2，因子2只连接变量1
-tensors = [
-    [0.5 0.5; 0.5 0.5],  # 因子1（2×2张量）
-    [0.5 0.5; 0.5 0.5; 0.5 0.5], # 因子2（向量）
-     [0.5 0.5; 0.5 0.5; 0.5 0.5],
-     [0.5 0.5]
-]
-
-# 2. 初始化BP对象
-bp = BeliefPropgation(t2v, tensors)
-
-# 3. 运行BP算法
-state, info = belief_propagate(bp; max_iter=50, tol=1e-5, damping=0.3)
-
-# 4. 获取并打印边际分布
-marginals = marginals(state)
-for (var, prob) in marginals
-    println("Variable $var: ", round.(prob; digits=3))
+    @test BP(FG) == Dict((8, 3) => 0.5, (6, 2) => 0.0, (7, 2) => 0.9999999999999996, (8, 4) => 0.25, (7, 1) => 0.22222222222222213, (6, 1) => 0.9999999999999993, (8, 5) => 0.25, (7, 3) => 0.0, (9, 1) => 1.0)
 end

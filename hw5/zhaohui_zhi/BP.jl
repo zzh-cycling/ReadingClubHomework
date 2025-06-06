@@ -249,6 +249,7 @@ function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::F
     order = randomvalue ? t[sortperm(rand(length(t)))] : t
 
     prev_messages = deepcopy(messages_f2v)  # Store previous messages for convergence check
+    new_messages = Dict{Tuple{Int, Int}, Float64}()
     for iter in 1:max_iter
         # Update messages from variables to clauses
         new_messages = BP_iterate(order, messages, prev_messages, FG, edge_types)
@@ -260,7 +261,6 @@ function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::F
         end
             
         prev_messages = deepcopy(new_messages)
-        @show new_messages
 
         # 判断是否收敛
         if max_delta < tol && iter > 1  # 确保至少有一次迭代
@@ -268,18 +268,30 @@ function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::F
             break
         end
         final_iter = iter  # 更新最终迭代次数
-        # @show iter, max_delta, final_iter, new_messages
     end
     
-    
-    @show final_iter, new_messages
-    # if final_iter == max_iter
-    #     return "UN-CONVERGED"
-    # else
-    #     return new_messages
-    # end
+
+    if final_iter == max_iter
+        return "UN-CONVERGED"
+    else
+        return new_messages
+    end
 end
 
+function marginal(messages_f2v::Dict{Tuple{Int, Int}, TT}) where TT
+
+    marginals = Dict{Int, TT}()
+
+    for (f, v) in keys(messages_f2v)
+        haskey(marginals, v) ? marginals[v] *= messages_f2v[(f, v)] : marginals[v] = messages_f2v[(f, v)]
+    end
+
+    sum_p = sum(values(marginals))
+    for v in keys(marginals)
+        marginals[v] /= sum_p  # Normalize marginals
+    end
+    return marginals
+end
 
 # function compute_entropy(alpha; k=3, N=100_000, num_iter=100, num_samples=10_000)
 #     """
