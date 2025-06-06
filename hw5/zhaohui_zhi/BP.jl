@@ -1,8 +1,7 @@
 using Random
 using Statistics
-using Graphs, SimpleWeightedGraphs
+using Graphs
 using LinearAlgebra
-using SparseArrays
 
 struct SATformula
     clauses::Vector{Vector{Int}}
@@ -50,20 +49,21 @@ end
 
 # factor graph, the first num_vars are the variables (the indices), the rest are the factors (the tensors)
 struct FactorGraph{T}
-    g::SimpleWeightedGraph{T}
+    g::SimpleGraph{T}
     num_vars::Int
-    function FactorGraph(g::SimpleWeightedGraph{T}, num_vars::Int) where T
+    edge_types::Dict{Tuple{Int, Int}, Int}  # Edge types: -1 for original variable edges, 1 for negated variable edges
+    function FactorGraph(g::SimpleGraph{T}, num_vars::Int, edge_types::Dict{Tuple{Int, Int},Int}) where T
         for e in edges(g)
             s, d = src(e), dst(e)
             # neighbor of a variable is a factor, and vice versa
             @assert ((s ≤ num_vars) && (d > num_vars)) || ((s > num_vars) && (d ≤ num_vars))
         end
-        new{T}(g, num_vars)
+        new{T}(g, num_vars, edge_types)
     end
 end
 
 Base.show(io::IO, fg::FactorGraph) = print(io, "FactorGraph{variables: $(fg.num_vars), factors: $(nv(fg.g) - fg.num_vars)}")
-Base.copy(fg::FactorGraph) = FactorGraph(copy(fg.g), fg.num_vars)
+Base.copy(fg::FactorGraph) = FactorGraph(copy(fg.g), fg.num_vars, fg.edge_types)
 
 Graphs.edges(fg::FactorGraph) = edges(fg.g)
 Graphs.vertices(fg::FactorGraph) = vertices(fg.g)
@@ -84,18 +84,19 @@ is_variable(fg::FactorGraph, v) = v ≤ fg.num_vars
 function FactorGraph(code::SATformula)::FactorGraph
     num_vars = code.num_vars
     num_clauses = code.num_clauses
-    g = SimpleWeightedGraph(num_vars + num_clauses)
-    
+    g = SimpleGraph(num_vars + num_clauses)
+    edge_types = Dict{Tuple{Int, Int}, Int}()
     # Add edges between variables and clauses
     for (i, clause) in enumerate(code.clauses)
         clause_idx = num_vars + i  # Clause index in the graph
         for var in clause
             # Add edge from variable to clause
-            add_edge!(g, abs(var), clause_idx, sign(var))
+            add_edge!(g, abs(var), clause_idx)
+            get!(edge_types, (abs(var), clause_idx), -sign(var))
         end
     end
     
-    return FactorGraph(g, num_vars)
+    return FactorGraph(g, num_vars, edge_types)
 end
 
 function is_variable(v::Int, num_vars::Int)::Bool
@@ -108,11 +109,11 @@ end
 
 function Set_messages(FG::FactorGraph)
     # Set messages in the factor graph
-    messages = Dict{Tuple{Int, Int}, Vector{Float64}}()
+    messages = Dict{Tuple{Int, Int}, Float64}()
     g = FG.g
     for e in edges(g)
-        messages[(src(e), dst(e))] = [0.5, 0.5]  # Initialize messages to uniform distribution
-        messages[(dst(e), src(e))] = [0.5, 0.5]  # Initialize messages in the opposite direction
+        messages[(src(e), dst(e))] = 0.5  # Initialize messages to uniform distribution
+        messages[(dst(e), src(e))] = 0.5  # Initialize messages in the opposite direction
     end
     
     return messages
@@ -136,111 +137,96 @@ function seperate_messages(messages::Dict{Tuple{Int, Int}, TA}, num_vars::Int64)
     return messages_v2f, messages_f2v
 end
 
-function BP_update!(update_messages::Dict{Tuple{Int, Int}, TA}, num_vars::Int64, edge_types::Dict{Tuple{Int, Int}, Int}, damping_factor::Float64=0.5, tolerance::Float64=1e-6 ,randomvalue::Bool=true) where TA
-    # Input: Set of all update_messages arriving onto each variable node j ∈ V(a)\i
-    messages_v2f, messages_f2v = seperate_messages(messages, num_vars)
-    bond = collect(keys(messages))
-    fuse(x,y)=[x...,y...]
-    vertices = Set(foldl(fuse, bond))
-    len = length(messages)
-
-    for vertex in vertices
-
-    end
-
-    new_messages = Dict{Tuple{Int, Int}, Vector{Float64}}()
+function BP_update!(input_messages::Dict{Tuple{Int, Int}, TA}, neighbors_ja::Vector{Int}, neighbors_bj::Vector{Tuple{Int64, Int64}}, num_vars::Int64, a::Int, edge_types::Dict{Tuple{Int, Int}, Int}, damping_factor::Float64=1.0, tolerance::Float64=1e-6) where {TA}
+    # Input: Set of all input_messages arriving onto each variable node j ∈ V(a)\i, a is the function node, i is the variable node to which we are sending the message to.
     
-    V_plus = Dict{Int, Vector{Tuple{Int, Int}}}()  # 变量j的原变量边 (a,j) where J=-1
-    V_minus = Dict{Int, Vector{Tuple{Int, Int}}}() # 变量j的否定边 (a,j) where J=1
-    
-    I, J, V = findnz(edge_types)  # I=行索引, J=列索引, V=元素值
+    V_plus = Vector{Tuple{Int64, Int64}}()  # 变量j的原变量边 (a,j) where J=-1
+    V_minus =  Vector{Tuple{Int64, Int64}}() # 变量j的否定边 (a,j) where J=1
 
-    for idx in eachindex(V)
-        i = I[idx]
-        j = J[idx]
-        val = V[idx]
-
-        # 注意：Julia 稀疏矩阵默认列优先存储
-        if val == -1.0
-            # 添加到 V_plus (j对应键, (i,j)是坐标)
-            arr = get!(() -> Tuple{Int, Int}[], V_plus, j)
-            push!(arr, (i, j))
-        elseif val == 1.0
-            # 添加到 V_minus
-            arr = get!(() -> Tuple{Int, Int}[], V_minus, j)
-            push!(arr, (i, j))
+    for (b, j) in neighbors_bj
+        J = edge_types[(j, b)]
+        if J == -1
+            push!(V_plus, (b, j))
+        elseif J == 1
+            push!(V_minus, (b, j))
         end
     end
+    γ_product = 1.0  # 初始化γ乘积
+    # 对每个邻居j ∈ V(a)\i 计算γ_j→a
+    for j in neighbors_ja
+        # 获取边(a,j)的类型
+        J_aj = edge_types[(j, a)]
+        @assert J_aj in [1, -1] "Edge type for ($a, $j) must be 1 or -1"
+        # 确定Vu(j→a)和Vs(j→a)的边集合
+        if J_aj == -1
+            # J_aj=-1: 原变量边，按公式Vu(j)=V_plus[j]\a，Vs=V_minus[j]\a
+            Vu = V_minus
+            Vs = V_plus
+        else
+            # J_aj=1: 否定边，按公式Vu(j)=V_minus[j]\a，Vs=V_plus[j]\a
+            Vu = V_plus
+            Vs = V_minus
+        end
+        # 计算Pu_j→a: ∏_{b ∈ Vu} (1 - δ_b→j)
+        Pu = 1.0
+        for (b, j) in Vu
+            δ = input_messages[(b, j)]
+            Pu *= (1 - δ)
+        end
+        Pu = isempty(Vu) ? 1.0 : Pu  # 处理空集
+        # 计算Ps_j→a: ∏_{b ∈ Vs} (1 - δ_b→j)
+        Ps = 1.0
+        for (b, j) in Vs
+            δ = input_messages[(b, j)]
+            Ps *= (1 - δ)
+        end
+        Ps = isempty(Vs) ? 1.0 : Ps
+        # 计算γ_j→a = Ps / (Pu + Ps)
+        γ = Ps / (Pu + Ps + eps())  # 加eps()防止除零
+        γ_product *= γ
+    end
     
-    # 遍历每条消息边 (a -> i)
-    for (a, i) in keys(messages)
-        # 获取 V(a)\i：所有与a相连的变量节点，排除i
-        neighbors = [j for (a_prime, j) in keys(messages) if a_prime == a && j != i]
-        isempty(neighbors) && continue  # 跳过无邻居的情况
+    
+    # # 应用阻尼（可选）
+    # if damping_factor < 1.0
+    #     old_δ = messages[(a, i)]
+    #     new_δ = damping_factor * new_δ + (1 - damping_factor) * old_δ
+    # end
+    # new_messages[(a, i)] = new_δ
 
-        γ_product = 1.0  # 初始化γ乘积
 
-        # 对每个邻居j ∈ V(a)\i 计算γ_j→a
-        for j in neighbors
-            # 获取边(a,j)的类型
-            J_aj = get(edge_types, (a, j), 0)
-            @assert J_aj in [1, -1] "Edge type for ($a, $j) must be 1 or -1"
-
-            # 确定Vu(j→a)和Vs(j→a)的边集合
-            if J_aj == -1
-                # J_aj=-1: 原变量边，按公式Vu(j)=V_plus[j]\a，Vs=V_minus[j]\a
-                Vu = [b for (b, j_node) in V_plus[j] if b != a]
-                Vs = [b for (b, j_node) in V_minus[j] if b != a]
-            else
-                # J_aj=1: 否定边，按公式Vu(j)=V_minus[j]\a，Vs=V_plus[j]\a
-                Vu = [b for (b, j_node) in V_minus[j] if b != a]
-                Vs = [b for (b, j_node) in V_plus[j] if b != a]
-            end
-
-            # 计算Pu_j→a: ∏_{b ∈ Vu} (1 - δ_b→j)
-            Pu = 1.0
-            for (b, j_node) in Vu
-                # 根据边类型选择消息分量：原变量边取[1]，否定边取[2]
-                J_bj = edge_types[(b, j_node)]
-                δ = (J_bj == -1) ? messages[(b, j_node)][1] : messages[(b, j_node)][2]
-                Pu *= (1 - δ)
-            end
-            Pu = isempty(Vu) ? 1.0 : Pu  # 处理空集
-
-            # 计算Ps_j→a: ∏_{b ∈ Vs} (1 - δ_b→j)
-            Ps = 1.0
-            for (b, j_node) in Vs
-                J_bj = edge_types[(b, j_node)]
-                δ = (J_bj == -1) ? messages[(b, j_node)][1] : messages[(b, j_node)][2]
-                Ps *= (1 - δ)
-            end
-            Ps = isempty(Vs) ? 1.0 : Ps
-
-            # 计算γ_j→a = Ps / (Pu + Ps)
-            γ = Ps / (Pu + Ps + eps())  # 加eps()防止除零
-            γ_product *= γ
-        end
-
-        # 根据边类型(a,i)确定更新哪个消息分量
-        J_ai = edge_types[(a, i)]
-        new_δ = (J_ai == -1) ? [γ_product, messages[(a, i)][2]] : [messages[(a, i)][1], γ_product]
-        
-        # 应用阻尼（可选）
-        if damping_factor < 1.0
-            old_δ = messages[(a, i)]
-            new_δ = damping_factor * new_δ + (1 - damping_factor) * old_δ
-        end
-
-        new_messages[(a, i)] = new_δ
-    end
-
-    # 更新原消息字典
-    for (k, v) in new_messages
-        messages[k] = v
-    end
-
-    return messages
+    return γ_product
 end
+
+function BP_iterate(order, messages::Dict{Tuple{Int, Int}, Float64}, messages_init::Dict{Tuple{Int, Int}, Float64}, FG::FactorGraph, edge_types::Dict{Tuple{Int, Int}, Int})
+    new_messages = Dict{Tuple{Int, Int}, Float64}()
+    for (a, i) in order
+        # 获取 V(a)\i：所有与a相连的变量节点，排除i
+        neighbors_ja = [j for (a_prime, j) in keys(messages) if a_prime == a && j != i]
+        if isempty(neighbors_ja)   # 跳过无邻居的情况
+            new_messages[(a, i)] = 1.0  # 跳过无邻居的情况
+        else
+            neighbors_bj = [(b,k) 
+            for k in neighbors_ja 
+            for b in FG.num_vars:ne(g)
+            if k != b && b!=a && haskey(messages, (b, k)) ]
+            
+            if isempty(neighbors_bj) 
+                new_messages[(a, i)] = 0.5 # 跳过无邻居的情况
+            else
+                input_message = Dict(
+                    (b, k) => messages_init[(b, k)] 
+                    for (b, k) in neighbors_bj
+                ) # b is the function node, k is the variable node
+                output_message_ai = BP_update!(input_message, neighbors_ja, neighbors_bj, FG.num_vars, a, edge_types)
+                new_messages[(a, i)] = output_message_ai
+            end
+        end
+    end     
+    
+    return new_messages
+end
+
 
 function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::Float64=1e-6)
     """
@@ -254,73 +240,44 @@ function BP(FG::FactorGraph, max_iter::Int=1000, randomvalue::Bool=true,  tol::F
     """
     # Initialize messages
     messages = Set_messages(FG)
-    g = FG.g
-    # Initialize variable assignments
-    
-    edge_types = g.weights  # Edge types: -1 for original variable edges, 1 for negated variable edges
+    edge_types = FG.edge_types  # Edge types: -1 for original variable edges, 1 for negated variable edges
     
     
-    
+    final_iter = 0
     messages_v2f, messages_f2v = seperate_messages(messages, FG.num_vars)
     t = collect(keys(messages_f2v))
     order = randomvalue ? t[sortperm(rand(length(t)))] : t
 
-    
-    
-
+    prev_messages = deepcopy(messages_f2v)  # Store previous messages for convergence check
     for iter in 1:max_iter
         # Update messages from variables to clauses
-        for (a, i) in order
-            # 获取 V(a)\i：所有与a相连的变量节点，排除i
-            neighbors = [j for (a_prime, j) in keys(messages) if a_prime == a && j != i]
-            isempty(neighbors) && continue  # 跳过无邻居的情况
-            input_message = Dict((a, k) => messages[(a, k)] for k in neighbors if haskey(messages, (a, k)))
-            output_message = BP_update!(input_message, FG.num_vars, edge_types, 0.5, tol, randomvalue)
-
-        end     
-
-
-        for v in 1:g.num_vars
-            neighbors = g.neighbors[v]
-            for c in neighbors
-                msg = 1.0  # Start with a neutral message
-                for other_v in neighbors
-                    if other_v != v
-                        msg *= messages[(other_v, c)]
-                    end
-                end
-                messages[(v, c)] = msg
-            end
-        end
+        new_messages = BP_iterate(order, messages, prev_messages, FG, edge_types)
         
-        # Update messages from clauses to variables
-        for c in 1:g.num_clauses
-            neighbors = g.clause_neighbors[c]
-            for v in neighbors
-                msg = 1.0  # Start with a neutral message
-                for other_c in g.variable_neighbors[v]
-                    if other_c != c
-                        msg *= messages[(v, other_c)]
-                    end
-                end
-                messages[(c, v)] = msg
-            end
+        max_delta = 0.0
+        for key in keys(new_messages)
+            delta = abs(new_messages[key] - get(prev_messages, key, 0.0))
+            max_delta = max(max_delta, delta)
         end
-        
-        # Check convergence (optional)
-        if iter > 1 && maximum(abs.(values(messages) .- prev_messages)) < tol
+            
+        prev_messages = deepcopy(new_messages)
+        @show new_messages
+
+        # 判断是否收敛
+        if max_delta < tol && iter > 1  # 确保至少有一次迭代
+            final_iter = iter
             break
         end
-        
-        prev_messages = copy(messages)
+        final_iter = iter  # 更新最终迭代次数
+        # @show iter, max_delta, final_iter, new_messages
     end
     
-    # Extract variable assignments from messages (simplified logic)
-    for v in 1:g.num_vars
-        assignment[v] = if rand() < 0.5 :t else :f end  # Random assignment as placeholder
-    end
-    return SATsolution(assignment, g.num_vars, g.clauses)
     
+    @show final_iter, new_messages
+    # if final_iter == max_iter
+    #     return "UN-CONVERGED"
+    # else
+    #     return new_messages
+    # end
 end
 
 
